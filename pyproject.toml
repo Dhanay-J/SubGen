@@ -1,0 +1,23 @@
+[project]
+name = "subgen"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+    "numpy>=2.5.5",
+    "onnxruntime>=1.32.0",
+    "torch>=2.15.0",
+    "transformers>=5.23.0",
+    "useful-moonshine-onnx>=20251121",
+]
+
+[tool.uv.sources]
+torch = [
+  { index = "pytorch-cpu", marker = "sys_platform == 'linux'" },
+]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
