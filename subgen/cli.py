@@ -2,6 +2,7 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+import gc
 from pathlib import Path
 
 from .align import Word, spread_words, tidy_ctc
@@ -76,29 +77,77 @@ def main(argv=None) -> int:
         engine = build_engine(args.engine, model=args.model, models_dir=args.models_dir,
                               threads=args.threads, int8=args.int8)
 
-    words: list[Word] = []
+        words: list[Word] = []
+    
+    RELOAD_EVERY_S = float(os.environ.get("SUBGEN_RELOAD_SEC", "600"))
+
+    if RELOAD_EVERY_S <= 0:
+        raise ValueError("SUBGEN_RELOAD_SEC must be greater than zero")
+
     with timer.stage("asr"):
         force_chunking = dur > 300
 
         if getattr(engine, "whole_file", False) and not force_chunking:
-            words = engine.transcribe(audio)      # native VAD + alignment
+            words = engine.transcribe(audio)
             print(f"\r  whole file  words={len(words)}", end="", file=sys.stderr)
+
         else:
+            last_reload_at = 0.0
+            reloads = 0
+
             for i, ch in enumerate(chunks, 1):
-                piece = audio[int(ch.start * SAMPLE_RATE):int(ch.end * SAMPLE_RATE)]
+                piece = audio[
+                    int(ch.start * SAMPLE_RATE):
+                    int(ch.end * SAMPLE_RATE)
+                ]
+
                 out = engine.transcribe(piece)
+
                 if engine.has_timestamps:
-                    words.extend(Word(w.text, w.start + ch.start, w.end + ch.start)
-                                 for w in tidy_ctc(out))
+                    words.extend(
+                        Word(w.text, w.start + ch.start, w.end + ch.start)
+                        for w in tidy_ctc(out)
+                    )
                 else:
                     words.extend(spread_words(out, ch.segments))
-                print(f"\r  chunk {i}/{len(chunks)}  t={ch.end:7.1f}s  words={len(words)}",
-                      end="", file=sys.stderr)
-    print(file=sys.stderr)
-    close = getattr(engine, "close", None)
-    if close:
-        close()
-    del engine
+
+                print(
+                    f"\r  chunk {i}/{len(chunks)} "
+                    f"t={ch.end:7.1f}s "
+                    f"words={len(words)} "
+                    f"reloads={reloads}",
+                    end="",
+                    file=sys.stderr,
+                )
+
+                # Reload every 10 minutes of source audio.
+                if ch.end - last_reload_at >= RELOAD_EVERY_S:
+
+                    close = getattr(engine, "close", None)
+
+                    if callable(close):
+                        close()
+
+                    del engine
+                    gc.collect()
+
+                    engine = build_engine(
+                        args.engine,
+                        model=args.model,
+                        models_dir=args.models_dir,
+                        threads=args.threads,
+                        int8=args.int8,
+                    )
+
+                    last_reload_at = ch.end
+                    reloads += 1
+
+                    print(
+                        f"\n  [reload] Model rebuilt at "
+                        f"{ch.end:.1f}s "
+                        f"(reload #{reloads})",
+                        file=sys.stderr,
+                    )
 
     with timer.stage("cues"):
         cues = words_to_cues(words, args.max_chars, args.max_lines, args.max_cue)
