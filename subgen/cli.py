@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 
 from .align import Word, spread_words, tidy_ctc
-from .audio import SAMPLE_RATE, load_audio
+from .audio import SAMPLE_RATE, format_tracks, load_audio, probe_audio, resolve_track
 from .engines import build_engine
 from .subtitles import enforce_timing, to_srt, to_txt, to_vtt, words_to_cues
 from .timing import StageTimer
@@ -18,6 +18,12 @@ def main(argv=None) -> int:
     ap.add_argument("-o", "--output", help="output basename (default: input without extension)")
     ap.add_argument("--engine", choices=("moonshine", "voice", "wav2vec2"), default="moonshine")
     ap.add_argument("--model", help="moonshine/base | moonshine/tiny | HF CTC model id")
+    ap.add_argument("--audio-track", default=None, metavar="N|LANG|TITLE",
+                    help="audio track for multi-audio files: ordinal (0,1,...), "
+                         "language code (eng, mal), or title substring. "
+                         "Default: the track flagged default, else the first.")
+    ap.add_argument("--list-tracks", action="store_true",
+                    help="list audio tracks and exit")
     ap.add_argument("--models-dir", help="local ONNX dir (offline / quantized)")
     ap.add_argument("--threads", type=int, default=max(1, (os.cpu_count() or 2) // 2))
     ap.add_argument("--int8", action="store_true", help="dynamic int8 (wav2vec2)")
@@ -32,10 +38,23 @@ def main(argv=None) -> int:
     args = ap.parse_args(argv)
 
     timer = StageTimer()
+    
+    if args.list_tracks:
+        print(format_tracks(probe_audio(args.input)))
+        return 0
+
     with timer.stage("decode"):
-        audio = load_audio(args.input)
+        tracks = probe_audio(args.input)
+        ordinal = resolve_track(tracks, args.audio_track)
+        t = tracks[ordinal]
+        audio = load_audio(args.input, ordinal)
     dur = audio.size / SAMPLE_RATE
 
+    if len(tracks) > 1 or args.audio_track is not None:
+            print(f"audio track {ordinal}: {t['language']} {t['codec']} "
+                f"{t['channels']}ch {t['sample_rate']}Hz"
+                + ("  (default)" if t["default"] else ""), file=sys.stderr)
+            
     with timer.stage("vad"):
         segments = speech_segments(audio, margin_db=args.vad_margin)
         chunks = group_segments(segments, max_span=args.max_chunk)
