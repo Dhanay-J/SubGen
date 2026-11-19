@@ -12,7 +12,7 @@ class VoiceEngine:
 
     def __init__(self, arch: str = "base", language: str = "en",
                  word_timestamps: bool = True, vad_threshold: float = 0.5,
-                 max_segment: float = 15.0, **_):
+                 max_segment: float = 10.0, **_):
         from moonshine_voice import (Transcriber, get_model_for_language,
                                      string_to_model_arch)
 
@@ -40,7 +40,11 @@ class VoiceEngine:
         from moonshine_voice.moonshine_api import TranscriptC
         from moonshine_voice.errors import check_error
 
-        flat = np.ascontiguousarray(audio, dtype=np.float32).ravel()
+        # Check if we actually need to copy
+        if audio.flags['C_CONTIGUOUS']:
+            flat = audio.ravel()
+        else:
+            flat = np.ascontiguousarray(audio, dtype=np.float32).ravel()
         ptr = flat.ctypes.data_as(ctypes.POINTER(ctypes.c_float))
         out = ctypes.POINTER(TranscriptC)()
         err = self.t._lib.moonshine_transcribe_without_streaming(

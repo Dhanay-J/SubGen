@@ -78,7 +78,9 @@ def main(argv=None) -> int:
 
     words: list[Word] = []
     with timer.stage("asr"):
-        if getattr(engine, "whole_file", False):
+        force_chunking = dur > 300
+
+        if getattr(engine, "whole_file", False) and not force_chunking:
             words = engine.transcribe(audio)      # native VAD + alignment
             print(f"\r  whole file  words={len(words)}", end="", file=sys.stderr)
         else:
@@ -93,6 +95,10 @@ def main(argv=None) -> int:
                 print(f"\r  chunk {i}/{len(chunks)}  t={ch.end:7.1f}s  words={len(words)}",
                       end="", file=sys.stderr)
     print(file=sys.stderr)
+    close = getattr(engine, "close", None)
+    if close:
+        close()
+    del engine
 
     with timer.stage("cues"):
         cues = words_to_cues(words, args.max_chars, args.max_lines, args.max_cue)

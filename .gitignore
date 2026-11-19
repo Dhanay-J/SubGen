@@ -3,3 +3,5 @@ test*
 __py*
 models
 __models
+*.bin
+*.html

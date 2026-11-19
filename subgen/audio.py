@@ -97,7 +97,7 @@ def load_audio(path: str, track: str | int | None = None,
     p = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     if p.returncode != 0:
         raise RuntimeError("ffmpeg failed:\n" + p.stderr.decode("utf-8", "replace")[-1500:])
-    audio = np.frombuffer(p.stdout, dtype="<f4").copy()
+    audio = np.frombuffer(p.stdout, dtype="<f4")
     if audio.size == 0:
         raise RuntimeError("no audio decoded (empty track?)")
     return audio

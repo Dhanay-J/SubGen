@@ -18,6 +18,10 @@ class MoonshineEngine:
         so.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
         so.add_session_config_entry("session.intra_op.allow_spinning", "0")
 
+        # dynamic shapes: don't cache per-shape memory plans, don't hoard an arena
+        so.enable_mem_pattern = False
+        so.enable_cpu_mem_arena = False
+        
         # MoonshineOnnxModel builds its sessions with no SessionOptions.
         # Wrap the constructor for the duration of __init__ so the first
         # (and only) load already has our thread config.
