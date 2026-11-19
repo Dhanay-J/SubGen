@@ -16,7 +16,7 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="subgen", description="CPU-only SRT/WebVTT generator")
     ap.add_argument("input")
     ap.add_argument("-o", "--output", help="output basename (default: input without extension)")
-    ap.add_argument("--engine", choices=("moonshine", "wav2vec2"), default="moonshine")
+    ap.add_argument("--engine", choices=("moonshine", "voice", "wav2vec2"), default="moonshine")
     ap.add_argument("--model", help="moonshine/base | moonshine/tiny | HF CTC model id")
     ap.add_argument("--models-dir", help="local ONNX dir (offline / quantized)")
     ap.add_argument("--threads", type=int, default=max(1, (os.cpu_count() or 2) // 2))
@@ -59,16 +59,20 @@ def main(argv=None) -> int:
 
     words: list[Word] = []
     with timer.stage("asr"):
-        for i, ch in enumerate(chunks, 1):
-            piece = audio[int(ch.start * SAMPLE_RATE):int(ch.end * SAMPLE_RATE)]
-            out = engine.transcribe(piece)
-            if engine.has_timestamps:
-                words.extend(Word(w.text, w.start + ch.start, w.end + ch.start)
-                             for w in tidy_ctc(out))
-            else:
-                words.extend(spread_words(out, ch.segments))
-            print(f"\r  chunk {i}/{len(chunks)}  t={ch.end:7.1f}s  words={len(words)}",
-                  end="", file=sys.stderr)
+        if getattr(engine, "whole_file", False):
+            words = engine.transcribe(audio)      # native VAD + alignment
+            print(f"\r  whole file  words={len(words)}", end="", file=sys.stderr)
+        else:
+            for i, ch in enumerate(chunks, 1):
+                piece = audio[int(ch.start * SAMPLE_RATE):int(ch.end * SAMPLE_RATE)]
+                out = engine.transcribe(piece)
+                if engine.has_timestamps:
+                    words.extend(Word(w.text, w.start + ch.start, w.end + ch.start)
+                                 for w in tidy_ctc(out))
+                else:
+                    words.extend(spread_words(out, ch.segments))
+                print(f"\r  chunk {i}/{len(chunks)}  t={ch.end:7.1f}s  words={len(words)}",
+                      end="", file=sys.stderr)
     print(file=sys.stderr)
 
     with timer.stage("cues"):
